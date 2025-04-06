@@ -3,6 +3,7 @@
 
 Replication Exercise completed by Katharyn Loweth and Wendy Shi 
 
+This repository contains the code, dataset, and visualization for replicating the work of Eshima, S., Imai, K., and Sasaki, T. on **Keyword-Assisted Topic Models**. Please see the following section that guides through what each folder contains. 
 
 # Code:
 - **Replication_code.qmd**: The main code for replication
