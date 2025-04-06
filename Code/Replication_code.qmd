@@ -1,0 +1,742 @@
+---
+title: "Keyword Assisted Topic Model Replication"
+author: "Katharyn Loweth & Wendy Shi"
+format: html
+toc: TRUE
+toc-location: left
+toc-depth: 7
+embed-resources: TRUE
+editor: visual
+---
+
+# Preparation
+
+```{r}
+#| results: 'hide'
+#install.packages("keyATM")
+library(keyATM)
+library(quanteda)
+library(tidyverse)
+library(multiROC)
+library(xtable)
+library(clue)
+library(patchwork)
+library(ggplot2)
+```
+
+## Load Data
+
+```{r}
+setwd(getwd())
+docs <- readRDS("../Data/bill_dfm.rds")
+docid <- docs@Dimnames$docs
+```
+
+```{r}
+#True topics
+docid_subbed <- gsub(".txt", "", docid)
+true_topic <- inner_join(tibble::tibble(docid = docid_subbed),
+                         read_csv("../Data/101_114_HR_S_true_topic.csv", show_col_types = FALSE),  by = "docid")
+docid_use_df <- tibble::tibble(docid = true_topic$docid)
+
+```
+
+```{r}
+# number of topics
+K <- 21 
+
+## Bill labels
+bill_label <- c("Macroeconomics", "Civil rights", "Health", "Agriculture",
+                "Labor", "Education", "Environment", "Energy", "Immigration",
+                "Transportation", "Law & crime", "Social welfare", "Housing",
+                "Domestic commerce", "Defense", "Technology", "Foreign trade",
+                "International affairs", "Government operations", "Public lands",
+                "Culture")
+
+#Convert docs to a dataframe
+dfm_use_df <- convert(docs, to = "data.frame")
+doc_term_len <- apply(dfm_use_df[, -1], 1, sum)
+```
+
+## Summary Statistics
+
+```{r}
+#Comute summary statistics
+cat(sprintf("Total documents: %d \n", nrow(docs)))
+cat(sprintf("Unique term: %d \n", ncol(docs)))
+cat(sprintf("On average %f terms per document \n", mean(doc_term_len)))
+cat(sprintf("Max %d terms length  \n", max(doc_term_len)))
+cat(sprintf("Min %d terms length  \n", min(doc_term_len)))
+cat(sprintf("On average %f documents per session  \n", mean(table(gsub("th.*$", "", docid)))))
+```
+
+```{r}
+#Compute the count table for true lables
+count_table <- data.frame(Topic_label = bill_label,
+  Count = as.integer(apply(true_topic[, -1], 2, sum)),
+  Percentage = round(apply(true_topic[, -1], 2, sum)/nrow(true_topic), 4) *  100 )
+
+#Computing average keyword per topics
+keys_list <- readRDS("../Data/bill_key_paper.rds")
+names(keys_list) <- bill_label
+cat(sprintf("On average %f keywords per topic \n", mean(sapply(keys_list, length))))
+```
+
+```{r}
+#print(keys_list[19])
+```
+
+## True Topic Visualization
+
+```{r}
+# Make sure Topic is ordered by Probability or by original order
+count_table$Topic_label <- factor(count_table$Topic_label, levels = count_table$Topic_label)
+
+# Plot
+real_count_vish <- ggplot(count_table, aes(x = Topic_label, y = Percentage/100)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Probability of Topics", x = "Topic", y = "Probability") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+
+real_count_vish 
+
+ggsave("real_count_plot.png", plot =real_count_vish, width = 8, height = 6, dpi = 300)
+```
+
+# `KeyATM()` Model
+
+```{r}
+ls("package:keyATM")
+```
+
+```{r}
+keyATM_doc <- keyATM_read(docs)
+key_viz <- visualize_keywords(docs = keyATM_doc, keywords = keys_list)
+values_fig(key_viz)
+#key_viz
+```
+
+## Keyword Distribution Visualization
+
+```{r}
+key_words_selected <-  
+  list('Government Operation' = c('administrative', 'capital', 'collection'),
+       'Public Land' = c('land','resource', 'water'),
+       'Defence' = c('security', 'military','operation'),
+       'Domestic commerce' = c('cost','security','management'),
+       'Law and Crime' = c('code', 'family', 'court'),
+       'Health' = c('cost', 'health', 'payment')
+       )
+key_viz2 <- visualize_keywords(docs = keyATM_doc, keywords = key_words_selected)
+key_viz2
+
+save_fig(key_viz2, "keyword_vish.png", width = 6.5, height = 4)
+```
+
+## Model Fitting
+
+Takes five minutes to run
+
+```{r}
+#| results: 'hide'
+#default is 1500
+my_options <- list(
+  seed          = 250, # Generating random seed
+  iterations    = 100)
+
+key_model <- keyATM(
+  docs      = keyATM_doc, # text input
+  no_keyword_topics = 3, 
+  keywords  = keys_list, # keywords
+  model     = "base",     # select the model
+  options   = my_options,  # use your own option list      
+)
+```
+
+```{r}
+top_words(key_model)
+```
+
+```{r}
+#Plotting model fits
+fig_modelfit <- plot_modelfit(key_model)
+fig_modelfit
+```
+
+```{r}
+#turn plot_pi results into a table
+topic_dis <- values_fig(plot_pi(key_model))
+```
+
+## Estimated Topic Distribution
+
+```{r}
+library(ggplot2)
+
+# Make sure Topic is ordered by Probability or by original order
+topic_dis$Topic <- factor(topic_dis$Topic, levels = topic_dis$Topic)
+
+# Plot
+estimated_count_vish <- ggplot(topic_dis, aes(x = Topic, y = Probability)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Probability of Topics (keyATM Estimated)", x = "Topic", y = "Probability") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+
+estimated_count_vish
+
+ggsave("estimated_count_vish.png", plot =estimated_count_vish, width = 8, height = 6, dpi = 300)
+```
+
+# `weightedLDA()` Model
+
+Takes less than a minutes to run
+
+```{r}
+#| results: 'hide'
+out_wLDA <- weightedLDA(
+  docs              = keyATM_doc,    # text input
+  number_of_topics  = 21,              # number of topics without keywords
+  model             = "base",         # select the model
+  options           = list(seed = 250, iterations    = 100)
+)
+```
+
+```{r}
+tw_repLDA = top_words(out_wLDA)
+tw_repLDA
+#topic 2 is immigration
+#Topic 8 is transporation
+#Topic 10 is labor
+#topic 3 is government operations
+#topic 11 is foreign trade
+#topic 18 is law & crime
+```
+
+# ROC curves
+
+## Replicated Results
+
+code doesn't include markov chain. unable to ensure that the topics in the weighted LDA results aligns with authors order.
+
+```{r}
+#| warning: false
+#| message: false
+#to replicate figure we need to pull 6 topics from true labels, key topic model, and LDA
+#for key topic models/true labels:
+#X5 is labor
+#X10 is transportation
+#X17 is foreign trade
+#X11 is Law & Crime
+#X9 is immigration
+#X19 is government operations
+
+#for LDA model, filter results for following:
+#topic 2 is immigration
+#Topic 8 is transporation
+#Topic 10 is labor
+#topic 3 is government operations
+#topic 11 is foreign trade
+#topic 18 is law & crime
+
+#LDA
+lda_topics = c("Topic_10", "Topic_2", "Topic_8","Topic_18", "Topic_11", "Topic_3")
+
+post_lda_thetas <- as.data.frame(out_wLDA$theta) 
+
+post_lda_thetas_filtered = post_lda_thetas %>% 
+  select(all_of(lda_topics)) %>% 
+  rename_with(~ paste0("X", seq_along(.), "_pred_LDA"))
+
+post_lda_thetas_filtered_df <- cbind(docid_use_df, post_lda_thetas_filtered)
+
+#Key Topic Model
+select_key_topics = c("5_Labor", "9_Immigration", "10_Transportation","11_Law & crime", "17_Foreign trade",  "19_Government operations")
+
+post_key_thetas <- as.data.frame(key_model$theta) 
+
+post_key_thetas_filtered = post_key_thetas %>% 
+  select(all_of(select_key_topics)) %>% 
+  rename_with(~ paste0("X", seq_along(.), "_pred_KEY"))
+
+post_key_thetas_filtered_df <- cbind(docid_use_df, post_key_thetas_filtered)
+
+#true_topics
+true_topic_filtered = true_topic %>% 
+  select(X5, X9, X10, X11, X17, X19) %>% 
+  rename_with(~ paste0("X", seq_along(.), "_true")) %>% 
+  cbind(docid_use_df)
+
+
+# Add true topic label
+joined_filtered <- inner_join(true_topic_filtered,
+                     post_key_thetas_filtered_df, by = "docid") %>%
+            inner_join(post_lda_thetas_filtered_df, by = "docid")
+
+#need to ensure that object is a data frame for multi_roc
+#documentation and formatting of the columns has changed for multiroc() since publication of data
+joined_df_filtered = as.data.frame(joined_filtered)
+## implement
+roc_res_filtered <- multi_roc(joined_df_filtered, force_diag = T)
+
+## plot format
+plot_roc_df_filtered <- plot_roc_data(roc_res_filtered)
+
+#for key topic models/true labels:
+#X5 is labor
+#X10 is transportation
+#X17 is foreign trade
+#X11 is Law & Crime
+#X9 is immigration
+#X19 is government operations
+
+#ids_main <- c("X5", "X10", "X17", "X9", "X11", "X19")
+#ROC_plot_paper(plot_roc_df, ids_main, type = "paper", savename = "bill_base_roc_med") # replace
+
+plot_roc_df_filtered_v2 = plot_roc_df_filtered %>% 
+  filter(Group %in% c("X1", "X2", "X3", "X4", "X5", "X6")) %>% 
+  mutate(GroupLab = case_when(Group == "X1" ~ "Labor", 
+                              Group == "X3" ~ "Transportation", 
+                              Group == "X5" ~ "Foreign trade", 
+                              Group == "X2" ~ "Immigration", 
+                              Group == "X4" ~ "Law & Crime", 
+                              Group == "X6" ~ "Government operations"))
+
+plot_roc_df_filtered_v2$GroupLab = factor(plot_roc_df_filtered_v2$GroupLab, levels = c("Labor", "Transportation", "Foreign trade", "Immigration", "Law & Crime", "Government operations"))
+
+# Plotting the ROC curves
+roccurve1 = ggplot(plot_roc_df_filtered_v2, aes(x = 1 - Specificity, y = Sensitivity, color = Method)) +
+  geom_line(size = 1) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") + 
+  facet_wrap(~ GroupLab, ncol = 3) + # Facet by group label
+  theme_minimal() +
+  labs(title = "ROC Curves for Each Topic: Keyword Assisted Topic Model vs. Weighted LDA",
+       x = "False Positive Rate",
+       y = "True Positive Rate") +
+  theme(legend.position = "bottom") +
+  scale_color_manual(values = c("KEY" = "blue", "LDA" = "red")) 
+
+roccurve1
+
+ggsave("RepExercise2_roccurve1.jpg", plot = roccurve1)
+```
+
+## Validation against original paper results
+
+```{r}
+key_randnum1 <- readRDS("../Data/bill_key_extraK0_iter3000_randnum1_paper.rds")
+key_randnum2 <- readRDS("../Data/bill_key_extraK0_iter3000_randnum2_paper.rds")
+key_randnum3 <- readRDS("../Data/bill_key_extraK0_iter3000_randnum3_paper.rds")
+key_randnum4 <- readRDS("../Data/bill_key_extraK0_iter3000_randnum4_paper.rds")
+key_randnum5 <- readRDS("../Data/bill_key_extraK0_iter3000_randnum5_paper.rds")
+
+lda_randnum1 <- readRDS("../Data/bill_lda_extraK0_iter3000_randnum1_paper.rds")
+lda_randnum2 <- readRDS("../Data/bill_lda_extraK0_iter3000_randnum2_paper.rds")
+lda_randnum3 <- readRDS("../Data/bill_lda_extraK0_iter3000_randnum3_paper.rds")
+lda_randnum4 <- readRDS("../Data/bill_lda_extraK0_iter3000_randnum4_paper.rds")
+lda_randnum5 <- readRDS("../Data/bill_lda_extraK0_iter3000_randnum5_paper.rds")
+```
+
+### Process author's original model result
+
+```{r}
+##categories change every time between models; would need to reorder manually or identify topics manually
+#some categories are clear whereas others are split across multiple
+#transportation typically splits between air and land transportation
+#government operations typically splits across multiple, some related to the structure (congress; senate) whereas others related to actions (authorize)
+#foreign trade not very distinguishable from foreign aid
+
+tw_lda1 = top_words(lda_randnum1)
+#topics 21 is immigration
+#topic 20 is foreign trade
+#both topic 13 and 16 relate to transportation
+#topic 11  could be government operations
+#topic 5 is law and crime
+#topic 19 is labor 
+lda1_topics = c("Topic_19", "Topic_21", "Topic_13","Topic_5", "Topic_20", "Topic_11")
+
+lda_randum1_thetas <- as.data.frame(lda_randnum1$theta) 
+
+lda_randum1_thetas_filtered = lda_randum1_thetas %>% 
+  select(all_of(lda1_topics)) %>% 
+  rename_with(~ paste0("X", seq_along(.), "_pred_ORIGLDA1"))
+
+lda_randum1_thetas_filtered_df <- cbind(docid_use_df, lda_randum1_thetas_filtered )
+
+
+tw_lda2 = top_words(lda_randnum2) 
+#topic 10 is labor
+#topic 11 is foreign trade
+#topic 15 is government operations
+#topic 20 is transportation
+#topic 16 is immigration
+#topic 14 is law and crime
+
+lda2_topics = c("Topic_10", "Topic_16", "Topic_20","Topic_14", "Topic_11", "Topic_15")
+
+lda_randum2_thetas <- as.data.frame(lda_randnum2$theta) 
+
+lda_randum2_thetas_filtered = lda_randum2_thetas %>% 
+  select(all_of(lda2_topics)) %>% 
+  rename_with(~ paste0("X", seq_along(.), "_pred_ORIGLDA2"))
+
+lda_randum2_thetas_filtered_df <- cbind(docid_use_df, lda_randum2_thetas_filtered )
+
+
+
+tw_lda3 = top_words(lda_randnum3)
+#topic 1 is law and crime 
+#topic 10 is government operations
+#topic 15 is labor
+#topic 17 is immigration
+#topic 8 is transportation
+#topic 4 is foreign trade
+
+lda3_topics = c("Topic_15", "Topic_17", "Topic_8","Topic_1", "Topic_4", "Topic_10")
+
+lda_randum3_thetas <- as.data.frame(lda_randnum3$theta) 
+
+lda_randum3_thetas_filtered = lda_randum3_thetas %>% 
+  select(all_of(lda3_topics)) %>% 
+  rename_with(~ paste0("X", seq_along(.), "_pred_ORIGLDA3"))
+
+lda_randum3_thetas_filtered_df <- cbind(docid_use_df, lda_randum3_thetas_filtered )
+
+
+tw_lda4 = top_words(lda_randnum4)
+#topic 1 and 5 are transportation
+#topic 7 is foreign trade
+#topic 20 is immigration
+#topic 6 is law & crime
+#topic 10 is government operations
+#topic 3 is labor
+
+lda4_topics = c("Topic_3", "Topic_20", "Topic_1","Topic_6", "Topic_7", "Topic_10")
+
+lda_randum4_thetas <- as.data.frame(lda_randnum4$theta) 
+
+lda_randum4_thetas_filtered = lda_randum4_thetas %>% 
+  select(all_of(lda4_topics)) %>% 
+  rename_with(~ paste0("X", seq_along(.), "_pred_ORIGLDA4"))
+
+lda_randum4_thetas_filtered_df <- cbind(docid_use_df, lda_randum4_thetas_filtered )
+
+
+tw_lda5 = top_words(lda_randnum5)
+#topic 1 is government operations
+#topic 6 & 7 is transportation
+#topic 9 is immigration
+#topic 18 is law & crime
+#topic 16 is foreign trade
+#topic 19 is labor
+
+lda5_topics = c("Topic_19", "Topic_9", "Topic_6","Topic_18", "Topic_16", "Topic_1")
+
+lda_randum5_thetas <- as.data.frame(lda_randnum5$theta) 
+
+lda_randum5_thetas_filtered = lda_randum5_thetas %>% 
+  select(all_of(lda5_topics)) %>% 
+  rename_with(~ paste0("X", seq_along(.), "_pred_ORIGLDA5"))
+
+lda_randum5_thetas_filtered_df <- cbind(docid_use_df, lda_randum5_thetas_filtered )
+
+```
+
+### Comparing replicated key topic model results with original key topic results
+
+```{r}
+#| warning: false
+#| message: false
+
+select_key_topics = c("5_Labor", "9_Immigration", "10_Transportation","11_Law & crime", "17_Foreign trade",  "19_Government operations")
+
+#our replicated dataset
+#post_repkey_thetas <- as.data.frame(key_model$theta) %>% select(all_of(select_key_topics)) %>% rename_with(~ paste0("X", seq_along(.), "_pred_REPKEY"))
+
+#post_repkey_thetas_df <- cbind(docid_use_df, post_key_thetas)
+
+#used chatgpt to create a formula for the code:
+#I have teh following code where i am performing the same steps for 5 datasets that follow #similar naming patterns. I want to make a function to automate the process: #post_key_randnum1_thetas <- as.data.frame(key_randnum1$theta) %>% rename_with(~ paste0("X", #seq_along(.), "_pred_ORIGKEY1"))
+
+#post_key_randnum1_thetas_df <- cbind(docid_use_df, post_key_randnum1_thetas)
+
+#model2
+#post_key_randnum2_thetas <- as.data.frame(key_randnum2$theta) %>% rename_with(~ paste0("X", seq_along(.), "_pred_ORIGKEY2"))
+
+#post_key_randnum2_thetas_df <- cbind(docid_use_df, post_key_randnum2_thetas)
+
+column_numbers = c(5, 9, 10, 11, 17, 19)
+
+process_key_randnum <- function(data, filteredtopics, label, docid_df) {
+  # Convert the theta object to a data frame and rename columns
+  theta_df <- as.data.frame(data$theta) %>% select(all_of(filteredtopics))%>%
+    rename_with(~ paste0("X", seq_along(.), "_pred_", label))
+  
+  # Combine the processed theta data frame with your docid_use_df
+  result_df <- cbind(docid_df, theta_df)
+  
+  return(result_df)
+}
+
+post_key_randnum1_thetas_df <- process_key_randnum(key_randnum1, column_numbers, "ORIGKEY1", docid_use_df)
+post_key_randnum2_thetas_df <- process_key_randnum(key_randnum2, column_numbers,"ORIGKEY2", docid_use_df)
+post_key_randnum3_thetas_df <- process_key_randnum(key_randnum3, column_numbers, "ORIGKEY3", docid_use_df)
+post_key_randnum4_thetas_df <- process_key_randnum(key_randnum4, column_numbers, "ORIGKEY4", docid_use_df)
+post_key_randnum5_thetas_df <- process_key_randnum(key_randnum5, column_numbers, "ORIGKEY5", docid_use_df)
+
+#for simplicity, renaming topics /restarting count from 1 to align with the others
+true_topic_filtered = true_topic %>% 
+  select(X5, X9, X10, X11, X17, X19) %>% 
+  rename_with(~ paste0("X", seq_along(.), "_true")) %>% 
+  cbind(docid_use_df)
+
+# Add true topic label
+joined_rep_all <- inner_join(true_topic_filtered,
+                     post_key_thetas_filtered_df) %>%
+            inner_join(post_key_randnum1_thetas_df, by = "docid") %>%
+            inner_join(post_key_randnum2_thetas_df, by = "docid") %>%
+            inner_join(post_key_randnum3_thetas_df, by = "docid") %>%
+            inner_join(post_key_randnum4_thetas_df, by = "docid") %>%
+            inner_join(post_key_randnum5_thetas_df, by = "docid") %>%
+            inner_join(post_lda_thetas_filtered_df, by = "docid") %>%
+            inner_join(lda_randum1_thetas_filtered_df, by = "docid") %>%
+            inner_join(lda_randum2_thetas_filtered_df, by = "docid") %>%
+            inner_join(lda_randum3_thetas_filtered_df, by = "docid") %>%
+            inner_join(lda_randum4_thetas_filtered_df, by = "docid") %>%
+            inner_join(lda_randum5_thetas_filtered_df, by = "docid")
+
+
+#need to ensure that object is a data frame for multi_roc
+#documentation and formatting of the columns has changed for multiroc() since publication of data
+joined_df_rep_all = as.data.frame(joined_rep_all)
+## implement
+roc_res_rep <- multi_roc(joined_df_rep_all, force_diag = T)
+
+## plot format
+plot_roc_rep_df <- plot_roc_data(roc_res_rep)
+
+ids_main <- c("X1", "X2", "X3", "X4", "X5", "X6")
+#ROC_plot_paper(plot_roc_df, ids_main, type = "paper", savename = "bill_base_roc_med") # replace
+
+plot_roc_rep_df_all = plot_roc_rep_df %>% 
+  filter(Group %in% c("X1", "X2", "X3", "X4", "X5", "X6")) %>% 
+  mutate(GroupLab = case_when(Group == "X1" ~ "Labor", 
+                              Group == "X3" ~ "Transportation", 
+                              Group == "X5" ~ "Foreign trade", 
+                              Group == "X2" ~ "Immigration", 
+                              Group == "X4" ~ "Law & Crime", 
+                              Group == "X6" ~ "Government operations"))
+
+plot_roc_rep_df_all$GroupLab = factor(plot_roc_rep_df_all$GroupLab, levels = c("Labor", "Transportation", "Foreign trade", "Immigration", "Law & Crime", "Government operations"))
+
+
+# Plotting the ROC curves
+roccurve2 = ggplot(plot_roc_rep_df_all, aes(x = 1 - Specificity, y = Sensitivity, color = Method)) +
+  geom_line(size = 0.6, linetype = "dashed") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dotted", color = "black") + 
+  facet_wrap(~ GroupLab, ncol = 3) + # Facet by group label
+  theme_minimal() +
+  labs(title = "ROC Curves for Each Topic: KeyATM vs. wLDA Models",
+       subtitle = "10 models created by original authors, 2 replicated models",
+       x = "False Positive Rate",
+       y = "True Positive Rate") +
+  theme(legend.position = "bottom") +
+  scale_color_manual(values = c("KEY" = "blue", "ORIGKEY1" = "lightblue", "ORIGKEY2" = "lightblue", "ORIGKEY3" = "lightblue", "ORIGKEY4" = "lightblue", "ORIGKEY5" = "lightblue", "LDA" = "darkred", "ORIGLDA1" = "lightsalmon", "ORIGLDA2" = "lightsalmon", "ORIGLDA3" = "lightsalmon", "ORIGLDA4" = "lightsalmon", "ORIGLDA5" = "lightsalmon")) 
+
+roccurve2
+
+ggsave("RepExercise2_roccurve2.jpg", roccurve2)
+
+
+```
+
+# Extension
+
+-   We randomly select 5 words in the key words list to inform model
+
+-   We compare results for transportation and foreign trade – transportation as a "clear" topic vs foreign trade which is fuzzier.
+
+-   We run model 5 times and compare ROC curves
+
+## Sampling keywords
+
+```{r}
+
+#used chatgpt to create function:
+#prompt:in R i have a dictionary-like object (structure of object is list) where the key is a particular word (macroeconomics) and the value is a list of strings. The list of strings vary in size from 3 to 20. I want to iterate through the object and in the case that the list of strings has a length greater than 5 I want to randomly select 5 of the string values. I want to set a seed so that the results stay the same every time i run the code. I want to save the output as the same structure as input. I want to run the randomization 5 times so that I end up with 5 different list objects
+
+# Function to process the list
+process_list <- function(input_list, seed) {
+  set.seed(seed)
+  lapply(input_list, function(x) {
+    if (length(x) > 5) {
+      sample(x, 5) # Randomly select 5 items
+    } else {
+      x # Keep the original list if it's 5 or fewer
+    }
+  })
+}
+
+# Generate 5 different lists with different seeds
+output_lists <- lapply(1:5, function(i) process_list(keys_list, seed = 123 + i))
+
+# Check the results
+keys_sublist_1 = output_lists[[1]]
+keys_sublist_2 = output_lists[[2]]
+keys_sublist_3 = output_lists[[3]]
+keys_sublist_4 = output_lists[[4]]
+keys_sublist_5 = output_lists[[5]]
+```
+
+## Run 5 Replication with randomly selected keywords
+
+```{r}
+#| results: 'hide'
+#default is 1500
+my_options <- list(
+  seed          = 250, # automatically generate random seed
+  iterations    = 100)
+
+key_model_sublist1 <- keyATM(
+  docs      = keyATM_doc,    # text input
+  no_keyword_topics = 3, 
+  keywords  = keys_sublist_1, # keywords
+  model     = "base",        # select the model
+  options   = my_options,     # use your own option list      
+)
+
+key_model_sublist2 <- keyATM(
+  docs      = keyATM_doc,    # text input
+  no_keyword_topics = 3, 
+  keywords  = keys_sublist_2, # keywords
+  model     = "base",        # select the model
+  options   = my_options,     # use your own option list      
+)
+
+key_model_sublist3 <- keyATM(
+  docs      = keyATM_doc,    # text input
+  no_keyword_topics = 3, 
+  keywords  = keys_sublist_3, # keywords
+  model     = "base",        # select the model
+  options   = my_options,     # use your own option list      
+)
+
+key_model_sublist4 <- keyATM(
+  docs      = keyATM_doc,    # text input
+  no_keyword_topics = 4, 
+  keywords  = keys_sublist_4, # keywords
+  model     = "base",        # select the model
+  options   = my_options,     # use your own option list      
+)
+
+key_model_sublist5 <- keyATM(
+  docs      = keyATM_doc,    # text input
+  no_keyword_topics = 5, 
+  keywords  = keys_sublist_5, # keywords
+  model     = "base",        # select the model
+  options   = my_options,     # use your own option list      
+)
+```
+
+## Model Results
+
+```{r}
+#Model 1
+sub1_word = top_words(key_model_sublist1)
+sub1_word
+```
+
+```{r}
+#Model 2
+sub2_word = top_words(key_model_sublist2)
+sub2_word
+```
+
+```{r}
+#Model 3
+sub3_word = top_words(key_model_sublist3)
+sub3_word
+```
+
+```{r}
+#Model 4
+sub4_word = top_words(key_model_sublist4)
+sub4_word
+```
+
+```{r}
+#Model 5
+sub5_word = top_words(key_model_sublist5)
+sub5_word
+```
+
+## Compares ROC curves with the original
+
+```{r}
+
+select_key_topics_sublist = c("10_Transportation", "17_Foreign trade")
+
+#original results
+post_key_thetas_filtered_2 = post_key_thetas %>% select(all_of(select_key_topics_sublist)) %>% rename_with(~ paste0("X", seq_along(.), "_pred_KEY"))
+
+post_key_thetas_filtered_df_2 <- cbind(docid_use_df, post_key_thetas_filtered_2)
+
+#models with sublist of keywords
+sublist1_key_thetas_df <- process_key_randnum(key_model_sublist1,select_key_topics_sublist, "SUBKEY1", docid_use_df)
+
+sublist2_key_thetas_df <- process_key_randnum(key_model_sublist2,select_key_topics_sublist, "SUBKEY2", docid_use_df)
+
+sublist3_key_thetas_df <- process_key_randnum(key_model_sublist3,select_key_topics_sublist, "SUBKEY3", docid_use_df)
+
+sublist4_key_thetas_df <- process_key_randnum(key_model_sublist4,select_key_topics_sublist, "SUBKEY4", docid_use_df)
+
+sublist5_key_thetas_df <- process_key_randnum(key_model_sublist5,select_key_topics_sublist, "SUBKEY5", docid_use_df)
+
+true_topic_filtered_sublist = true_topic %>% select(X10, X17) %>% rename_with(~ paste0("X", seq_along(.), "_true")) %>% cbind(docid_use_df)
+```
+
+```{r}
+# Add true topic label
+joined_sublist <- inner_join(true_topic_filtered_sublist,
+                     post_key_thetas_filtered_df_2) %>%
+            inner_join(sublist1_key_thetas_df, by = "docid") %>%
+            inner_join(sublist2_key_thetas_df, by = "docid") %>%
+            inner_join(sublist3_key_thetas_df, by = "docid") %>%
+            inner_join(sublist4_key_thetas_df, by = "docid") %>%
+            inner_join(sublist5_key_thetas_df, by = "docid") 
+
+#need to ensure that object is a data frame for multi_roc
+#documentation and formatting of the columns has changed for multiroc() since publication of data
+joined_df_sublist = as.data.frame(joined_sublist)
+## implement
+roc_res_sublist <- multi_roc(joined_df_sublist, force_diag = T)
+
+## plot format
+plot_roc_sublist_df <- plot_roc_data(roc_res_sublist)
+
+ids_main <- c("X1", "X2")
+#ROC_plot_paper(plot_roc_df, ids_main, type = "paper", savename = "bill_base_roc_med") # replace
+
+plot_roc_sublist_df_2 = plot_roc_sublist_df %>% filter(Group %in% c("X1", "X2")) %>% mutate(GroupLab = case_when(Group == "X1" ~ "Transportation", Group == "X2" ~ "Foreign trade"))
+
+plot_roc_sublist_df_2$GroupLab = factor(plot_roc_sublist_df_2$GroupLab, levels = c("Transportation", "Foreign trade"))
+
+
+# Plotting the ROC curves
+roccurve3 = ggplot(plot_roc_sublist_df_2, aes(x = 1 - Specificity, y = Sensitivity, color = Method)) +
+  geom_line(size = 0.6) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dotted", color = "black") + 
+  facet_wrap(~ GroupLab, ncol = 3) + # Facet by group label
+  theme_minimal() +
+  labs(title = "ROC Curves: Whole Keylist vs Sublist",
+       subtitle = "1 original model, 5 models created with randomized sublist of 5 keywords for each topic",
+       x = "False Positive Rate",
+       y = "True Positive Rate") +
+  theme(legend.position = "bottom") + 
+  scale_color_manual(values = c("KEY" = "blue", "SUBKEY1" = "gray", "SUBKEY2" = "gray", "SUBKEY3" = "gray", "SUBKEY4" = "gray", "SUBKEY5" = "gray")) 
+
+roccurve3
+
+ggsave("RepExercise2_roccurve3.jpg", roccurve3)
+```
