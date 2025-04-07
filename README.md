@@ -42,6 +42,9 @@ To run the replicated code, please also download the below files from Harvard Da
 - **03Replication_result.png**: KeyATM and wLDA model words identified for the six topics mentioned in the paper
 - **03transportation.png**: keyATM and wLDA replicated words for Transportation
 
+# Final Reports
+- **RepEx2_report.pdf**: Written report for our replication
+- **RepEx2_slidedeck.pdf**: Slide deck for the presentation
 
 # Reference
 
