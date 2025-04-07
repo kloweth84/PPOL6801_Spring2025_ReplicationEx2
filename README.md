@@ -7,14 +7,16 @@ This repository contains the code, dataset, and visualization for replicating th
 
 # Code:
 - **Replication_code.qmd**: The main code for replication
-- **Replication_code.html**: The compiled results 
+- **Replication_code.html**: The compiled results
+- **base_main.R**: The original code created by authors
+- **common_utilities.R**: The original code created by authors that we were unable to run
 
 # Datasets:
 - **101_114_HR_S_true_topic.csv**: True topic for each congressional bill
 - **bill_dfm.rds**: Pre-processed congresional bill (Main corpus)
 - **bill_key_paper.rds**: Manually selected keywords for each topics
 
-To run the replicated code, please also download the below files from Havard Dataverse (not included due to file size):
+To run the replicated code, please also download the below files from Harvard Dataverse (not included due to file size):
 - **bill_key_extraK0_iter3000_randnum1_paper.rds**: Author's keyATM model result random simulation 1
 - **bill_key_extraK0_iter3000_randnum2_paper.rds**: Author's keyATM model result random simulation 2
 - **bill_key_extraK0_iter3000_randnum3_paper.rds**: Author's keyATM model result random simulation 3
