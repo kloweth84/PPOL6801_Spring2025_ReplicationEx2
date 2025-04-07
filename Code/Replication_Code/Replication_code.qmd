@@ -28,7 +28,7 @@ library(ggplot2)
 
 ```{r}
 setwd(getwd())
-docs <- readRDS("../Data/bill_dfm.rds")
+docs <- readRDS("../../Data/bill_dfm.rds")
 docid <- docs@Dimnames$docs
 ```
 
@@ -36,7 +36,7 @@ docid <- docs@Dimnames$docs
 #True topics
 docid_subbed <- gsub(".txt", "", docid)
 true_topic <- inner_join(tibble::tibble(docid = docid_subbed),
-                         read_csv("../Data/101_114_HR_S_true_topic.csv", show_col_types = FALSE),  by = "docid")
+                         read_csv("../../Data/101_114_HR_S_true_topic.csv", show_col_types = FALSE),  by = "docid")
 docid_use_df <- tibble::tibble(docid = true_topic$docid)
 
 ```
@@ -77,7 +77,7 @@ count_table <- data.frame(Topic_label = bill_label,
   Percentage = round(apply(true_topic[, -1], 2, sum)/nrow(true_topic), 4) *  100 )
 
 #Computing average keyword per topics
-keys_list <- readRDS("../Data/bill_key_paper.rds")
+keys_list <- readRDS("../../Data/bill_key_paper.rds")
 names(keys_list) <- bill_label
 cat(sprintf("On average %f keywords per topic \n", mean(sapply(keys_list, length))))
 ```
@@ -101,7 +101,7 @@ real_count_vish <- ggplot(count_table, aes(x = Topic_label, y = Percentage/100))
 
 real_count_vish 
 
-ggsave("real_count_plot.png", plot =real_count_vish, width = 8, height = 6, dpi = 300)
+#ggsave("real_count_plot.png", plot =real_count_vish, width = 8, height = 6, dpi = 300)
 ```
 
 # `KeyATM()` Model
@@ -162,6 +162,8 @@ top_words(key_model)
 #Plotting model fits
 fig_modelfit <- plot_modelfit(key_model)
 fig_modelfit
+
+#save_fig(fig_modelfit, "KeyATM_fit.pdf", width = 6.5, height = 4)
 ```
 
 ```{r}
@@ -325,17 +327,17 @@ ggsave("RepExercise2_roccurve1.jpg", plot = roccurve1)
 ## Validation against original paper results
 
 ```{r}
-key_randnum1 <- readRDS("../Data/bill_key_extraK0_iter3000_randnum1_paper.rds")
-key_randnum2 <- readRDS("../Data/bill_key_extraK0_iter3000_randnum2_paper.rds")
-key_randnum3 <- readRDS("../Data/bill_key_extraK0_iter3000_randnum3_paper.rds")
-key_randnum4 <- readRDS("../Data/bill_key_extraK0_iter3000_randnum4_paper.rds")
-key_randnum5 <- readRDS("../Data/bill_key_extraK0_iter3000_randnum5_paper.rds")
+key_randnum1 <- readRDS("../../Data/bill_key_extraK0_iter3000_randnum1_paper.rds")
+key_randnum2 <- readRDS("../../Data/bill_key_extraK0_iter3000_randnum2_paper.rds")
+key_randnum3 <- readRDS("../../Data/bill_key_extraK0_iter3000_randnum3_paper.rds")
+key_randnum4 <- readRDS("../../Data/bill_key_extraK0_iter3000_randnum4_paper.rds")
+key_randnum5 <- readRDS("../../Data/bill_key_extraK0_iter3000_randnum5_paper.rds")
 
-lda_randnum1 <- readRDS("../Data/bill_lda_extraK0_iter3000_randnum1_paper.rds")
-lda_randnum2 <- readRDS("../Data/bill_lda_extraK0_iter3000_randnum2_paper.rds")
-lda_randnum3 <- readRDS("../Data/bill_lda_extraK0_iter3000_randnum3_paper.rds")
-lda_randnum4 <- readRDS("../Data/bill_lda_extraK0_iter3000_randnum4_paper.rds")
-lda_randnum5 <- readRDS("../Data/bill_lda_extraK0_iter3000_randnum5_paper.rds")
+lda_randnum1 <- readRDS("../../Data/bill_lda_extraK0_iter3000_randnum1_paper.rds")
+lda_randnum2 <- readRDS("../../Data/bill_lda_extraK0_iter3000_randnum2_paper.rds")
+lda_randnum3 <- readRDS("../../Data/bill_lda_extraK0_iter3000_randnum3_paper.rds")
+lda_randnum4 <- readRDS("../../Data/bill_lda_extraK0_iter3000_randnum4_paper.rds")
+lda_randnum5 <- readRDS("../../Data/bill_lda_extraK0_iter3000_randnum5_paper.rds")
 ```
 
 ### Process author's original model result
