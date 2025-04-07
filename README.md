@@ -32,6 +32,7 @@ To run the replicated code, please also download the below files from Harvard Da
 # Visualizations:
 - **01estimated_count_vish**.png: keyATM estinated topic distribution across corpus 
 - **01keyword_vish.png**: Keywords distribution across the corpus
+- **01keyATM_fit.pdf**： Log-likelyhood and Perplexity of model performance over iterations
 - **01real_count_plot.png**: Real topic distribution accross the corpus
 - **02RepExercise2_roccurve1.jpg**: ROC curve for replicated keyATM and wLDA model
 - **02RepExercise2_roccurve2.jpg**: ROC curve for replicated keyATM and wLDA model compares to author's ROC curve
